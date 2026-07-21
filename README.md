@@ -1,4 +1,4 @@
-# hgvs2vcf
+# HGVS notation to VCF coordinates API server
 
 Offline HTTP API server that converts HGVS notation to VCF coordinates (`CHROM POS REF ALT`). At query time it does not call VEP, Mutalyzer, or NCBI; it reads pre-built transcript models (cdot) and the reference genome (GRCh38) from a local index.
 

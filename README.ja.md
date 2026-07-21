@@ -1,4 +1,4 @@
-# hgvs2vcf
+# HGVS notation to VCF coordinates API server
 
 [English](README.md)
 
