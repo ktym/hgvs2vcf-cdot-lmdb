@@ -1,0 +1,5 @@
+data/
+*.tar.gz
+cdot-*/
+.git/
+tmp/
