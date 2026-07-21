@@ -230,3 +230,7 @@ ruby spec/lmdb_test.rb     # インデックス構築 → LMDB → デコード
 | `BUILD` | `GRCh38` | ゲノムビルド名 |
 | `BIND` | `0.0.0.0` | バインドアドレス |
 | `PORT` | `4567` | 待ち受けポート |
+
+## Author
+
+Toshiaki Katayama が最初 Claude (Opus 4.8) で開発し、Cursor エージェントでデバッグして動くように調整した。

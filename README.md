@@ -228,3 +228,7 @@ A sudden jump in mismatch rate usually means a transcript version or MANE reassi
 | `BUILD` | `GRCh38` | Genome build name |
 | `BIND` | `0.0.0.0` | Bind address |
 | `PORT` | `4567` | Listen port |
+
+## Author
+
+Toshiaki Katayama initially developed this with Claude (Opus 4.8), then debugged and adjusted it with a Cursor agent until it ran correctly.
