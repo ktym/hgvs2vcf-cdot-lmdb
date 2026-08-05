@@ -14,9 +14,28 @@
 | HGVSc（RefSeq、版指定） | `NM_000603.4:c.894T>G` | 指定どおり |
 | HGVSc（Ensembl） | `ENST00000297494.3:c.894T>G` | 指定どおり / 最新 |
 
-`p.` / `c.` / `n.` の置換は実装済みです。`del` / `dup` / `ins` / `delins` やイントロンオフセットはパース・マッピングまで対応し、インデルは `bcftools norm` 相当の左寄せ正規化を行います。
-
 レスポンスには `vcf`（座標配列）、`ambiguous`（アミノ酸変化が複数の塩基変化に対応する場合）、`warnings`（参照塩基不一致など）が含まれます。
+
+### 対応している HGVS 表記
+
+| 座標系 | 対応 | 例 |
+|--------|------|-----|
+| `c.` 置換 | ✅ | `NM_000690.4:c.1510G>A` |
+| `c.` の `del` / `dup` / `ins` / `delins` | ✅ | `NM_000690.4:c.76_78del`、`c.76_77insACT` |
+| `c.` の UTR 座標 | ✅ | `c.-30G>A`、`c.*30del` |
+| `c.` のイントロンオフセット | ✅ | `c.1510+5G>A`、`c.25+1_26-1del` |
+| `n.`（非コーディング転写産物） | ✅ | `NR_003051.3:n.100_101del` |
+| `p.` の置換・伸長（ext） | ✅ | `ALDH2:p.Glu504Lys`、`p.Ter505Argext*17` |
+| `p.` の `del` / `dup` | ✅ | `ALDH2:p.Glu504del` |
+| `p.` の `ins` / `delins` | ✅（曖昧） | `p.Glu504_Lys505insGly` → コドンごとに 1 行 |
+| `p.` の `=`（同義） | ✅（曖昧） | `p.Ile441=` → 同義コドンごとに 1 行 |
+| `c.` / `n.` の `inv` | ✅ | `NM_001277115:c.12492_12493inv` |
+| `p.` の `fs`、`p.0`、`p.?`、`p.Met1?` | ❌ 理由付きで 422 | 一意な塩基変化が存在しない |
+| `g.` 置換 | ❌ | ゲノム座標のパススルー経路が未実装（今後） |
+| `con`、リピート `[n]`、アレル `[;]`、不確定 `(…)`、`?` | ❌ | |
+| `r.`（RNA）、`m.`（ミトコンドリア）、`NP_`/`ENSP` の HGVSp | ❌ | |
+
+インデルは `bcftools norm` 相当の左寄せで出力するため、HGVS の 3′ シフト位置とは座標がずれます。`p.` の挿入・欠失挿入は同義コドンの候補を **すべて** 返し `ambiguous: true` とします（組み合わせが 64 を超える場合はエラー）。
 
 ## クイックスタート
 
@@ -83,6 +102,8 @@ brew install lmdb samtools
 
 ```bash
 bundle install
+# 両方読み込んでください。canonical タグを持つのは ensembl ファイルだけで、
+# MANE Select の無い遺伝子のフォールバックはこれに依存します。
 ruby bin/build_index.rb --out data/index --build GRCh38 \
      data/cdot.refseq.GRCh38.json.gz data/cdot.ensembl.GRCh38.json.gz
 gunzip -kc data/GRCh38.fna.gz > data/GRCh38.fna && samtools faidx data/GRCh38.fna
@@ -174,9 +195,25 @@ cdot のエクソンタプル: `[g_start(0), g_end(excl), exon_number, cdna_star
    - `NOS3:p.Asp298Glu`、参照コドン `GAT` → 最小 SNV が **2 つ**: `c.894T>A` と `c.894T>G`。（既知の rs1799983 は T>G ですが、HGVSp だけでは断定できません。）
    デコーダーは最小候補を **すべて** 返し `ambiguous: true` にします。2 塩基以上の変化が必要な候補は `requires_mnv` とし MNV/delins として出力します。運用方針（すべて返す・1塩基を優先・拒否）は利用側で決めてください。
 
-2. **シンボルやアクセッションのみの入力では MANE Select をデフォルトにします。** cdot タグから解決し、MANE のない遺伝子（非コードング、一部パッチ遺伝子）は Ensembl canonical にフォールバックします。`ALDH2` → `NM_000690.4`、`NOS3` → `NM_000603.x`。`NM_000690` のみ → 読み込み済みの最高バージョン。
+2. **シンボルやアクセッションのみの入力では MANE Select をデフォルトにします。** cdot タグから解決し、MANE のない遺伝子（非コーディング、一部パッチ遺伝子）は Ensembl canonical にフォールバックします。`NM_000690` のみ → 読み込み済みの最高バージョン。
 
-3. **ENST も同様に扱え、むしろ単純です。** Ensembl/GENCODE 転写産物はゲノム由来のため `gap` は常に null — マイナス鎖とスプライス算術が本質です。cdot の *ensembl* ファイルを refseq と併せて読み込めば、ENST も同じ手順で解決します。
+   **canonical タグを持つのは ensembl ファイルだけです**（cdot 0.2.33 の refseq 側は 0 件）。フォールバックはこれに依存するため、**両方のファイルを読み込む必要があります**:
+
+   | インデックス構成 | 解決可能なシンボル数 | `MIR21`（MANE 無し） |
+   |---|---|---|
+   | refseq のみ | 19,238 / 54,062 | 解決不可 |
+   | **refseq + ensembl** | **41,976** | `ENST00000362134.1` |
+
+   refseq だけのインデックスでは 34,824 シンボルが解決できません。
+
+   MANE Select は RefSeq と Ensembl の対応付けそのものなので、`ALDH2` が `NM_000690.4` と `ENST00000261733.7` のどちらで返るかは等価であり、気にする必要はありません（読み込み順で決まります）。実際、順序で答えが変わるのは両ファイルに MANE タグがある 19,179 シンボル ＝ まさに MANE ペアのみで、**解決できるシンボルの集合は順序によらず不変**です。
+
+   なお本ツールはシンボルの別名・廃止シンボルを解決しません（HGNC complete set は未使用）。入力シンボルは cdot の `gene_name` と完全一致する必要があります。
+
+3. **ENST も同様に扱え、むしろ単純です。** Ensembl/GENCODE 転写産物はゲノム由来のため `gap` は常に null（cdot 0.2.33 の全 7,326,602 エクソンを走査して CIGAR 保持は 0 件と確認）— マイナス鎖とスプライス算術が本質です。ゴールデンセットを MANE Select の Ensembl 転写産物で再実行すると 70/70 で一致します。ただし ensembl ファイルを読み込むと以下 2 点が変わります。
+
+   - **遺伝子シンボルが MANE ペアのどちら側に解決されるかは読み込み順で決まります。** どちらでも等価なので実害はありませんが、応答の `transcript` フィールドが `NM_` と `ENST` で入れ替わる点だけ把握しておいてください。詳細は上のシンボル解決の節。
+   - **約 2,400 件の Ensembl 転写産物は NCBI FASTA に無い contig 名のスキャフォールド上にあります。** cdot の ensembl ファイルは Ensembl/GenBank 式のスキャフォールド名（`GL000194.1`、`KI270727.1`）を使いますが、RefSeq ゲノムはそれらを `NT_`/`NW_` アクセッションで持ちます。該当クエリは誤答ではなく 422（`Sequence::LookupError`）を返します。refseq の cdot ファイルにこの種の contig はありません。
 
 ### 実装の注意点（正解集合で検証すること）
 
@@ -210,11 +247,23 @@ n_exons u16 |
 ```bash
 ruby spec/engine_test.rb   # パーサー、HGVSp 逆翻訳、マッパー、正規化
 ruby spec/lmdb_test.rb     # インデックス構築 → LMDB → デコード
+ruby spec/decode_test.rb   # 合成リファレンスで全対応表記・両鎖を検証
 ```
+
+### ゴールデンセット
+
+`bench/gold.jsonl` は ClinVar 由来の 100 件で、正解は Ensembl Variant Recoder です。コーディング / イントロン / UTR / タンパク質 × 置換 / del / dup / ins / delins / inv を網羅しています。
+
+```bash
+ruby bench/run.rb --parse-only          # パース可否のみ（データ不要）
+INDEX_DIR=data/index GENOME_FASTA=data/GCF_000001405.40_GRCh38.p14_genomic.fna ruby bench/run.rb
+```
+
+現状の結果は **100/100** です（75 件はオラクルと完全一致、25 件は正規化表現のみが異なる）。後者を正解と扱う判定は、**両者の対立遺伝子をリファレンスに実際に適用して配列を比較**しています。基準を緩めたわけではありません: `bcftools norm` は本デコーダーの 120 行を 1 行も動かさず、オラクル側は 25 行を動かし、正規化後は両者が完全一致します。つまり本デコーダーの出力はオラクルの左寄せ形です。
 
 ## データ更新時の確認
 
-正しさはデータリリースに依存します。cdot や参照ゲノムを更新したら、代表例で既知の正解と突き合わせてください。
+正しさはデータリリースに依存します。cdot や参照ゲノムを更新したら、`bench/run.rb` を再実行し、代表例で既知の正解と突き合わせてください。
 
 - ClinVar `variant_summary.txt` や cdot 同梱の `clinvar_hgvs_*.tsv`
 - VariantValidator / Mutalyzer によるスポットチェック（マイナス鎖、gap 付き転写産物、エクソン境界、`c.-N` / `c.*N` など）
