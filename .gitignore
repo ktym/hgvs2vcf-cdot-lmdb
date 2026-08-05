@@ -1,0 +1,6 @@
+# Reference data and the index built from it — several GB, fetched per the README.
+/data/
+
+# Bundler
+/.bundle/
+/vendor/bundle/
