@@ -34,6 +34,7 @@ module Hgvs2vcf
           changes: changes, n_changes: changes.size
         )
       end.reject { |c| c.n_changes.zero? } # skip synonymous no-ops
+      raise AmbiguityError, "no codon encodes amino acid #{aa_alt.inspect}" if scored.empty?
 
       min = scored.map(&:n_changes).min
       minimal = scored.select { |c| c.n_changes == min }
@@ -44,6 +45,34 @@ module Hgvs2vcf
         requires_mnv: min && min > 1,
         reference_matches: reference_matches
       }
+    end
+
+    # Amino-acid string -> every nucleotide string that could encode it.
+    # Combinatorics explode (up to 6^n), so callers cap the result: `limit` is the
+    # largest number of candidates worth enumerating, above which the insertion is
+    # not resolvable to a workable set of variants.
+    AmbiguityError = Class.new(StandardError)
+
+    def codon_candidates(aas, limit: 64)
+      lists = aas.map do |aa|
+        codons = GeneticCode.codons_for(aa)
+        raise AmbiguityError, "no codon encodes amino acid #{aa.inspect}" if codons.empty?
+
+        codons
+      end
+      total = lists.reduce(1) { |acc, l| acc * l.size }
+      if total > limit
+        raise AmbiguityError,
+              "#{aas.join} has #{total} possible codon combinations (limit #{limit}); " \
+              "the nucleotide change cannot be pinned down from HGVSp alone"
+      end
+
+      lists.reduce([+""]) { |acc, l| acc.flat_map { |prefix| l.map { |c| prefix + c } } }
+    end
+
+    # c. coordinates of the codons for amino acids aa_start..aa_end (1-based, inclusive).
+    def codon_span(aa_start, aa_end)
+      [3 * (aa_start - 1) + 1, 3 * aa_end]
     end
 
     # Convert a candidate to a cDNA-space edit relative to the codon's first CDS base.

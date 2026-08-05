@@ -22,15 +22,28 @@ module Hgvs2vcf
     # c. datum (+ intron offset) -> { contig:, pos0: (0-based), intronic: bool }
     # ref/alt base orientation is handled by the caller via #strand.
     def c_to_genomic(datum:, offset: 0, cds_type: :cds)
-      cdna = cds_to_cdna(datum, cds_type)
+      cdna = cdna_coord(datum: datum, cds_type: cds_type)
       if offset.zero?
         { contig: @tx[:contig], pos0: cdna_to_genomic(cdna), intronic: false }
       else
         # Intronic: land on the exon boundary base, then step `offset` into the
         # intron in genomic space (sign flips on the minus strand).
+        check_intron_offset!(cdna, offset)
         boundary0 = cdna_to_genomic(cdna)
         step = plus? ? offset : -offset
         { contig: @tx[:contig], pos0: boundary0 + step, intronic: true }
+      end
+    end
+
+    # Map an HGVS datum to a 1-based transcript (cDNA) coordinate.
+    # cds_type: :cds (c.N), :utr5 (c.-N), :utr3 (c.*N), :cdna (n.N — raw transcript)
+    def cdna_coord(datum:, cds_type: :cds)
+      case cds_type
+      when :cdna then datum
+      when :cds  then cds_start_i + (datum - 1)
+      when :utr5 then cds_start_i - datum
+      when :utr3 then cds_end_i + datum
+      else raise MapError, "unknown cds_type #{cds_type}"
       end
     end
 
@@ -42,16 +55,54 @@ module Hgvs2vcf
       @tx[:strand] == "+"
     end
 
+    def contig
+      @tx[:contig]
+    end
+
     private
 
-    # Map a c. datum to a 1-based transcript (cDNA) coordinate.
-    # cds_type: :cds (c.N, N>=1), :utr5 (c.-N), :utr3 (c.*N)
-    def cds_to_cdna(datum, cds_type)
-      case cds_type
-      when :cds  then @tx[:cds_start_i] + (datum - 1)
-      when :utr5 then @tx[:cds_start_i] - datum
-      when :utr3 then @tx[:cds_end_i] + datum
-      else raise MapError, "unknown cds_type #{cds_type}"
+    def cds_start_i
+      @tx[:cds_start_i] ||
+        raise(MapError, "transcript #{@tx[:id]} is non-coding: c. coordinates are undefined (use n.)")
+    end
+
+    def cds_end_i
+      @tx[:cds_end_i] ||
+        raise(MapError, "transcript #{@tx[:id]} is non-coding: c. coordinates are undefined (use n.)")
+    end
+
+    # An intron offset is only defined relative to an exon *boundary*: N+M must sit
+    # on the last exonic base, N-M on the first. Catching this turns a silently
+    # wrong coordinate into an error.
+    def check_intron_offset!(cdna, offset)
+      i = @exons.index { |e| cdna >= e[3] && cdna <= e[4] }
+      raise MapError, "cDNA #{cdna} not within any exon" unless i
+
+      exon = @exons[i]
+      if offset.positive?
+        raise MapError, "offset +#{offset} requires cDNA #{cdna} to be the last base of an exon" unless cdna == exon[4]
+
+        neighbour = @exons[i + 1]
+        raise MapError, "no intron 3' of cDNA #{cdna} (last exon)" unless neighbour
+
+        limit = intron_length(exon, neighbour)
+      else
+        raise MapError, "offset #{offset} requires cDNA #{cdna} to be the first base of an exon" unless cdna == exon[3]
+        raise MapError, "no intron 5' of cDNA #{cdna} (first exon)" if i.zero?
+
+        limit = intron_length(@exons[i - 1], exon)
+      end
+      return unless offset.abs > limit
+
+      raise MapError, "intron offset #{offset} exceeds the #{limit} bp intron next to cDNA #{cdna}"
+    end
+
+    # Genomic length of the intron between two cDNA-adjacent exons.
+    def intron_length(upstream, downstream)
+      if plus?
+        downstream[0] - upstream[1]
+      else
+        upstream[0] - downstream[1]
       end
     end
 
