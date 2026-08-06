@@ -251,20 +251,9 @@ ruby spec/lmdb_test.rb     # index build → LMDB → decode
 ruby spec/decode_test.rb   # every supported edit, both strands, against a synthetic reference
 ```
 
-### Gold set
-
-`bench/gold.jsonl` holds 100 ClinVar-derived cases with Ensembl Variant Recoder as the oracle, spanning coding / intronic / UTR / protein × substitution / del / dup / ins / delins / inv.
-
-```bash
-ruby bench/run.rb --parse-only          # which inputs the parser accepts; no data needed
-INDEX_DIR=data/index GENOME_FASTA=data/GCF_000001405.40_GRCh38.p14_genomic.fna ruby bench/run.rb
-```
-
-Current result: **100/100** — 75 byte-identical to the oracle, 25 differing only in normalization. The runner treats the latter as correct by *materializing both alleles against the reference*: two rows describe the same variant when applying them yields the same sequence. That check is not a loosened bar — `bcftools norm` moves 0 of the decoder's 120 rows and 25 of the oracle's, and after normalizing both they match exactly, so the decoder's output is the left-aligned form of the oracle's.
-
 ## Validating data refreshes
 
-Correctness depends on the data release. After updating cdot or the reference genome, re-run `bench/run.rb` and spot-check against known truth:
+Correctness depends on the data release. After updating cdot or the reference genome, re-run the tests and spot-check against known truth:
 
 - ClinVar `variant_summary.txt` or cdot's `clinvar_hgvs_*.tsv` samples
 - VariantValidator / Mutalyzer for hard cases (minus-strand genes, gap transcripts, exon boundaries, `c.-N` / `c.*N`, etc.)

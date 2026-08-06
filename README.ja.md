@@ -253,20 +253,9 @@ ruby spec/lmdb_test.rb     # インデックス構築 → LMDB → デコード
 ruby spec/decode_test.rb   # 合成リファレンスで全対応表記・両鎖を検証
 ```
 
-### ゴールデンセット
-
-`bench/gold.jsonl` は ClinVar 由来の 100 件で、正解は Ensembl Variant Recoder です。コーディング / イントロン / UTR / タンパク質 × 置換 / del / dup / ins / delins / inv を網羅しています。
-
-```bash
-ruby bench/run.rb --parse-only          # パース可否のみ（データ不要）
-INDEX_DIR=data/index GENOME_FASTA=data/GCF_000001405.40_GRCh38.p14_genomic.fna ruby bench/run.rb
-```
-
-現状の結果は **100/100** です（75 件はオラクルと完全一致、25 件は正規化表現のみが異なる）。後者を正解と扱う判定は、**両者の対立遺伝子をリファレンスに実際に適用して配列を比較**しています。基準を緩めたわけではありません: `bcftools norm` は本デコーダーの 120 行を 1 行も動かさず、オラクル側は 25 行を動かし、正規化後は両者が完全一致します。つまり本デコーダーの出力はオラクルの左寄せ形です。
-
 ## データ更新時の確認
 
-正しさはデータリリースに依存します。cdot や参照ゲノムを更新したら、`bench/run.rb` を再実行し、代表例で既知の正解と突き合わせてください。
+正しさはデータリリースに依存します。cdot や参照ゲノムを更新したら、テストを再実行し、代表例で既知の正解と突き合わせてください。
 
 - ClinVar `variant_summary.txt` や cdot 同梱の `clinvar_hgvs_*.tsv`
 - VariantValidator / Mutalyzer によるスポットチェック（マイナス鎖、gap 付き転写産物、エクソン境界、`c.-N` / `c.*N` など）

@@ -4,3 +4,8 @@
 # Bundler
 /.bundle/
 /vendor/bundle/
+
+# Personal work notes, and the oracle-backed benchmark. The benchmark needs the
+# reference data above plus network access to Ensembl, so it is kept local.
+/WORKLOG.md
+/bench/
