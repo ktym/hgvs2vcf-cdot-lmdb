@@ -12,9 +12,31 @@ Offline HTTP API server that converts HGVS notation to VCF coordinates (`CHROM P
 | HGVSc (RefSeq, versioned) | `NM_000603.4:c.894T>G` | exact |
 | HGVSc (Ensembl) | `ENST00000297494.3:c.894T>G` | exact / latest |
 
-`p.` / `c.` / `n.` substitutions are implemented. `del` / `dup` / `ins` / `delins` and intronic offsets are parsed and mapped; indels are left-aligned using `bcftools norm`-equivalent normalization.
-
 Responses include `vcf` (coordinate rows), `ambiguous` (when one amino-acid change maps to several nucleotide changes), and `warnings` (e.g. reference-allele mismatch).
+
+### Supported HGVS
+
+| Coordinate | Supported | Example |
+|------------|-----------|---------|
+| `c.` substitution | ✅ | `NM_000690.4:c.1510G>A` |
+| `c.` `del` / `dup` / `ins` / `delins` | ✅ | `NM_000690.4:c.76_78del`, `c.76_77insACT` |
+| `c.` restated affected bases, spelled or counted | ✅ (checked) | `c.76_78delACT`, `c.76_78del3` |
+| `c.` UTR positions | ✅ | `c.-30G>A`, `c.*30del` |
+| `c.` intronic offsets | ✅ | `c.1510+5G>A`, `c.25+1_26-1del` |
+| `n.` (non-coding transcript) | ✅ | `NR_003051.3:n.100_101del` |
+| `p.` substitution / extension | ✅ | `ALDH2:p.Glu504Lys`, `p.Ter505Argext*17` |
+| `p.` `del` / `dup` | ✅ | `ALDH2:p.Glu504del` |
+| `p.` `ins` / `delins` | ✅ (ambiguous) | `p.Glu504_Lys505insGly` → one row per codon |
+| `p.` `=` (silent) | ✅ (ambiguous) | `p.Ile441=` → one row per synonymous codon |
+| `c.` / `n.` `inv` | ✅ | `NM_001277115:c.12492_12493inv` |
+| `p.` `fs`, `p.0`, `p.?`, `p.Met1?` | ❌ 422 with a reason | no unique nucleotide change exists |
+| `g.` substitution | ❌ | needs a genomic pass-through path (planned) |
+| `con`, repeats `[n]`, alleles `[;]`, uncertain `(…)`, `?` | ❌ | |
+| `r.` (RNA), `m.` (mitochondrial), `NP_`/`ENSP` HGVSp | ❌ | |
+
+`del` / `dup` / `inv` may restate what they affect, either literally (`delACT`) or as a count (`del18`). Either way the position range decides the edit and the restatement is only verified — a disagreement is reported in `warnings`, not an error, since the range is the authoritative part.
+
+Indels are emitted left-aligned (`bcftools norm`-equivalent), so they move relative to the HGVS 3′-shifted position. `p.` insertions and deletion-insertions return **every** synonymous codon choice with `ambiguous: true`; above 64 combinations the request is rejected instead.
 
 ## Quick start
 
@@ -81,6 +103,8 @@ brew install lmdb samtools
 
 ```bash
 bundle install
+# Load both. Only the ensembl file carries canonical tags, and the fallback for
+# genes without a MANE Select depends on them.
 ruby bin/build_index.rb --out data/index --build GRCh38 \
      data/cdot.refseq.GRCh38.json.gz data/cdot.ensembl.GRCh38.json.gz
 gunzip -kc data/GRCh38.fna.gz > data/GRCh38.fna && samtools faidx data/GRCh38.fna
@@ -172,9 +196,25 @@ The running app reads only the LMDB index and the genome FASTA. cdot JSON is nee
    - `NOS3:p.Asp298Glu`, ref codon `GAT` → **two** minimal SNVs: `c.894T>A` and `c.894T>G`. (The known rs1799983 is T>G, but HGVSp alone can't say.)
    The decoder returns **all** minimal candidates and sets `ambiguous: true`; candidates needing ≥2 nt changes are flagged `requires_mnv` and emitted as an MNV/delins. Decide your policy: return all, prefer single-nt, or refuse.
 
-2. **MANE Select as the default for a bare symbol / bare accession.** Resolved from cdot tags; falls back to Ensembl-canonical when a gene has no MANE (non-coding, some patch genes). `ALDH2` → `NM_000690.4`, `NOS3` → `NM_000603.x`. Bare `NM_000690` → highest loaded version.
+2. **MANE Select as the default for a bare symbol / bare accession.** Resolved from cdot tags; falls back to Ensembl-canonical when a gene has no MANE (non-coding, some patch genes). Bare `NM_000690` → highest loaded version.
 
-3. **ENST works the same way, and is actually easier.** Ensembl/GENCODE transcripts are derived from the genome, so `gap` is always null — the minus-strand/splice arithmetic is the whole story. Load the cdot *ensembl* file alongside refseq and ENST resolves identically.
+   **Only the ensembl file carries canonical tags** (0 in cdot 0.2.33's refseq file), and the fallback depends on them, so **load both files**:
+
+   | Index contents | Resolvable symbols | `MIR21` (no MANE) |
+   |---|---|---|
+   | refseq only | 19,238 / 54,062 | unresolvable |
+   | **refseq + ensembl** | **41,976** | `ENST00000362134.1` |
+
+   A refseq-only index leaves 34,824 symbols unresolvable.
+
+   MANE Select *is* the RefSeq↔Ensembl pairing, so whether `ALDH2` comes back as `NM_000690.4` or `ENST00000261733.7` is immaterial — the two are equivalent, and load order picks one. Load order changes the answer for exactly the 19,179 symbols tagged MANE in both files, i.e. exactly the MANE pairs; **the set of resolvable symbols is order-invariant**.
+
+   Note that symbol aliases and withdrawn symbols are not resolved (the HGNC complete set is unused); the input symbol must match cdot's `gene_name` exactly.
+
+3. **ENST works the same way, and is actually easier.** Ensembl/GENCODE transcripts are derived from the genome, so `gap` is always null (verified: 0 of 7,326,602 exons in cdot 0.2.33 carry a CIGAR) — the minus-strand/splice arithmetic is the whole story. Re-running the gold set through the MANE Select *Ensembl* transcript scores 70/70. Two things do differ once the ensembl file is loaded:
+
+   - **Which side of a MANE pair a gene symbol resolves to depends on load order.** The two are equivalent, so this is harmless — just be aware the reported `transcript` field flips between `NM_` and `ENST`. See the symbol-resolution section above.
+   - **~2,400 Ensembl transcripts sit on scaffolds the NCBI FASTA doesn't name.** cdot's ensembl file uses Ensembl/GenBank scaffold names (`GL000194.1`, `KI270727.1`); the RefSeq genome calls those `NT_`/`NW_` accessions. Those queries return 422 (`Sequence::LookupError`), not a wrong answer. The refseq cdot file has no such contigs.
 
 ### Gotchas (verify against your truth set)
 
@@ -208,11 +248,12 @@ Query = one mmap'd record read + binary search over the exon cDNA intervals + ar
 ```bash
 ruby spec/engine_test.rb   # parser, HGVSp back-translation, mapper, normalization
 ruby spec/lmdb_test.rb     # index build → LMDB → decode
+ruby spec/decode_test.rb   # every supported edit, both strands, against a synthetic reference
 ```
 
 ## Validating data refreshes
 
-Correctness depends on the data release. After updating cdot or the reference genome, spot-check against known truth:
+Correctness depends on the data release. After updating cdot or the reference genome, re-run the tests and spot-check against known truth:
 
 - ClinVar `variant_summary.txt` or cdot's `clinvar_hgvs_*.tsv` samples
 - VariantValidator / Mutalyzer for hard cases (minus-strand genes, gap transcripts, exon boundaries, `c.-N` / `c.*N`, etc.)

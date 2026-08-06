@@ -28,6 +28,8 @@ case "$cmd" in
     exec bundle exec ruby app.rb
     ;;
   index)
+    # Both files: only the ensembl one carries the canonical tags that back the
+    # fallback for genes without a MANE Select.
     exec ruby bin/build_index.rb --out "$INDEX_DIR" --build "$BUILD" \
       "$DATA/cdot.refseq.GRCh38.json.gz" "$DATA/cdot.ensembl.GRCh38.json.gz"
     ;;

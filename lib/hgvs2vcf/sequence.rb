@@ -5,6 +5,12 @@ module Hgvs2vcf
   # For production use a bgzipped .fa.gz + .fai + .gzi and mmap; this plain-FASTA
   # reader is enough to build/verify VCF alleles and to left-align indels.
   class Sequence
+    # Typed so the HTTP layer can answer 422 instead of 500. This is reachable in
+    # normal operation: the cdot *ensembl* file places ~2400 transcripts on
+    # unplaced scaffolds under Ensembl names (GL000194.1, KI270727.1) that the
+    # NCBI RefSeq FASTA does not carry.
+    LookupError = Class.new(StandardError)
+
     def initialize(fasta_path, fai_path = nil)
       @path = fasta_path
       @fai = load_fai(fai_path || "#{fasta_path}.fai")
@@ -13,7 +19,10 @@ module Hgvs2vcf
 
     # 0-based, half-open [start0, end0) -> upstream bases (uppercase).
     def fetch(contig, start0, end0)
-      idx = @fai.fetch(contig) { raise "contig #{contig.inspect} not in .fai" }
+      idx = @fai.fetch(contig) do
+        raise LookupError, "contig #{contig.inspect} is not in the reference FASTA index " \
+                           "(transcript and genome use different contig naming?)"
+      end
       len = end0 - start0
       return "" if len <= 0
 
@@ -35,7 +44,7 @@ module Hgvs2vcf
     private
 
     def load_fai(path)
-      raise "missing FASTA index #{path}; run: samtools faidx <fasta>" unless File.exist?(path)
+      raise LookupError, "missing FASTA index #{path}; run: samtools faidx <fasta>" unless File.exist?(path)
 
       File.foreach(path).each_with_object({}) do |line, h|
         name, length, offset, line_bases, line_width = line.chomp.split("\t")
@@ -85,6 +94,14 @@ module Hgvs2vcf
         ref = ref[1..]
         alt = alt[1..]
         pos0 += 1
+      end
+      # 4. VCF forbids empty alleles. Normally step 2 supplies the anchor base on
+      # the left; at the very start of a contig there is nothing to the left, so
+      # anchor on the right instead.
+      if ref.empty? || alt.empty?
+        right = seq.base(contig, pos0 + ref.length)
+        ref += right
+        alt += right
       end
       [pos0, ref, alt]
     end

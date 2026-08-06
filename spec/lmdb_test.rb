@@ -18,7 +18,9 @@ def check(desc, got, exp)
 end
 
 # ---- 1) real cdot test data: AOAH, minus strand, has a gap ---------------------
-cdot_path = "/home/claude/cdot-0.2.26/tests/test_data/cdot.refseq.grch37.json"
+# Optional: point CDOT_TEST_JSON at cdot's tests/test_data/cdot.refseq.grch37.json.
+cdot_path = ENV["CDOT_TEST_JSON"] || "/home/claude/cdot-0.2.26/tests/test_data/cdot.refseq.grch37.json"
+if File.exist?(cdot_path)
 src = JSON.parse(File.read(cdot_path))
 kv = {}; txdb = {}
 IndexBuilder.new(kv: kv, txdb: txdb, build: "GRCh37").add_cdot(cdot_path).finalize!
@@ -43,6 +45,9 @@ mp = Mapper.new(tx)
 pos0 = mp.c_to_genomic(datum: 1)[:pos0]
 expected_cds_end = src["transcripts"]["NM_001637.3"]["genome_builds"]["GRCh37"]["cds_end"]
 check("minus-strand c.1 == cds_end (1-based)", pos0 + 1, expected_cds_end)
+else
+  puts "skip  real cdot data (set CDOT_TEST_JSON to enable)"
+end
 
 # ---- 2) synthetic plus-strand transcript + tiny FASTA: full decode ------------
 synthetic = {

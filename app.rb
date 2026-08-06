@@ -53,7 +53,8 @@ get "/decode" do
   hgvs = params["hgvs"] or halt(400, { error: "missing hgvs" }.to_json)
   begin
     App.decoder.decode(hgvs).to_json
-  rescue Hgvs2vcf::Parser::ParseError, Hgvs2vcf::Transcripts::ResolveError, Hgvs2vcf::Mapper::MapError => e
+  rescue Hgvs2vcf::Parser::ParseError, Hgvs2vcf::Transcripts::ResolveError,
+         Hgvs2vcf::Mapper::MapError, Hgvs2vcf::Sequence::LookupError => e
     halt 422, { input: hgvs, error: e.message }.to_json
   end
 end
