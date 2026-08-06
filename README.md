@@ -20,6 +20,7 @@ Responses include `vcf` (coordinate rows), `ambiguous` (when one amino-acid chan
 |------------|-----------|---------|
 | `c.` substitution | ✅ | `NM_000690.4:c.1510G>A` |
 | `c.` `del` / `dup` / `ins` / `delins` | ✅ | `NM_000690.4:c.76_78del`, `c.76_77insACT` |
+| `c.` restated affected bases, spelled or counted | ✅ (checked) | `c.76_78delACT`, `c.76_78del3` |
 | `c.` UTR positions | ✅ | `c.-30G>A`, `c.*30del` |
 | `c.` intronic offsets | ✅ | `c.1510+5G>A`, `c.25+1_26-1del` |
 | `n.` (non-coding transcript) | ✅ | `NR_003051.3:n.100_101del` |
@@ -32,6 +33,8 @@ Responses include `vcf` (coordinate rows), `ambiguous` (when one amino-acid chan
 | `g.` substitution | ❌ | needs a genomic pass-through path (planned) |
 | `con`, repeats `[n]`, alleles `[;]`, uncertain `(…)`, `?` | ❌ | |
 | `r.` (RNA), `m.` (mitochondrial), `NP_`/`ENSP` HGVSp | ❌ | |
+
+`del` / `dup` / `inv` may restate what they affect, either literally (`delACT`) or as a count (`del18`). Either way the position range decides the edit and the restatement is only verified — a disagreement is reported in `warnings`, not an error, since the range is the authoritative part.
 
 Indels are emitted left-aligned (`bcftools norm`-equivalent), so they move relative to the HGVS 3′-shifted position. `p.` insertions and deletion-insertions return **every** synonymous codon choice with `ambiguous: true`; above 64 combinations the request is rejected instead.
 

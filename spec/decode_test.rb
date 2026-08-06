@@ -119,6 +119,16 @@ check("c. inv",          one(dec, "NM_000001.1:c.2_4inv"), rec(107, "TGC", "GCA"
 check("stated del seq mismatch is warned",
       dec.decode("NM_000001.1:c.2_4delAAA")[:warnings].first,
       "reference mismatch: HGVS states AAA but the transcript has TGC at NC_test:107")
+# `del3` counts the affected bases instead of spelling them: same assertion about
+# the reference, so the same answer, and a disagreement is a warning not an error.
+check("c. del stated count",  one(dec, "NM_000001.1:c.2_4del3"), rec(105, "ACTG", "A"))
+check("c. dup stated count",  one(dec, "NM_000001.1:c.2_4dup3"), rec(105, "A", "ACTG"))
+check("c. inv stated count",  one(dec, "NM_000001.1:c.2_4inv3"), rec(107, "TGC", "GCA"))
+check("c. del single stated count", one(dec, "NM_000001.1:c.2del1"), rec(106, "CT", "C"))
+check("stated del count mismatch is warned",
+      dec.decode("NM_000001.1:c.2_4del9")[:warnings].first,
+      "length mismatch: HGVS states 9 bases but the position range covers 3 at NC_test:107")
+check("minus c. del stated count", one(dec, "NM_000002.1:c.2_4del3"), rec(221, "CATG", "C"))
 # whole-intron deletion: c.25+1 = 130 .. c.26-1 = 199
 check("c. intronic del",  one(dec, "NM_000001.1:c.25+1_26-1del")[:ref].length, 71) # 70 + anchor
 # UTR ranges: c.-5_-3 = cDNA 1..3 = 100..102; c.*1_*3 = cDNA 51..53 = 220..222

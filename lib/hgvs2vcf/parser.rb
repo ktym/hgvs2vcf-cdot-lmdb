@@ -153,9 +153,13 @@ module Hgvs2vcf
     SNV    = /\A(?<p>#{POS})(?<ref>[ACGT])>(?<alt>[ACGT])\z/
     DELINS = /\A(?<p1>#{POS})(?:_(?<p2>#{POS}))?delins(?<alt>[ACGT]+)\z/
     INS    = /\A(?<p1>#{POS})_(?<p2>#{POS})ins(?<alt>[ACGT]+)\z/
-    INV    = /\A(?<p1>#{POS})_(?<p2>#{POS})inv(?<seq>[ACGT]*)\z/
-    DUP    = /\A(?<p1>#{POS})(?:_(?<p2>#{POS}))?dup(?<seq>[ACGT]*)\z/
-    DEL    = /\A(?<p1>#{POS})(?:_(?<p2>#{POS}))?del(?<seq>[ACGT]*)\z/
+    # del/dup/inv may restate what they affect, either literally (delACT) or as a
+    # count of bases (del18). Both are assertions about the reference rather than
+    # part of the edit, so both are optional and both are only checked.
+    AFFECTED = "(?:(?<seq>[ACGT]+)|(?<len>\\d+))?"
+    INV    = /\A(?<p1>#{POS})_(?<p2>#{POS})inv#{AFFECTED}\z/
+    DUP    = /\A(?<p1>#{POS})(?:_(?<p2>#{POS}))?dup#{AFFECTED}\z/
+    DEL    = /\A(?<p1>#{POS})(?:_(?<p2>#{POS}))?del#{AFFECTED}\z/
 
     def self.parse_cdna(desc)
       body = desc.sub(/\A[cn]\./, "")
@@ -169,13 +173,16 @@ module Hgvs2vcf
         return { edit: :ins, pos_start: parse_pos(m[:p1]), pos_end: parse_pos(m[:p2]), alt: m[:alt] }
       end
       if (m = INV.match(body))
-        return { edit: :inv, pos_start: parse_pos(m[:p1]), pos_end: parse_pos(m[:p2]), seq: m[:seq] }
+        return { edit: :inv, pos_start: parse_pos(m[:p1]), pos_end: parse_pos(m[:p2]),
+                 seq: m[:seq], len: m[:len]&.to_i }
       end
       if (m = DUP.match(body))
-        return { edit: :dup, pos_start: parse_pos(m[:p1]), pos_end: parse_pos(m[:p2] || m[:p1]), seq: m[:seq] }
+        return { edit: :dup, pos_start: parse_pos(m[:p1]), pos_end: parse_pos(m[:p2] || m[:p1]),
+                 seq: m[:seq], len: m[:len]&.to_i }
       end
       if (m = DEL.match(body))
-        return { edit: :del, pos_start: parse_pos(m[:p1]), pos_end: parse_pos(m[:p2] || m[:p1]), seq: m[:seq] }
+        return { edit: :del, pos_start: parse_pos(m[:p1]), pos_end: parse_pos(m[:p2] || m[:p1]),
+                 seq: m[:seq], len: m[:len]&.to_i }
       end
 
       raise ParseError, "unsupported cDNA change #{desc.inspect}"

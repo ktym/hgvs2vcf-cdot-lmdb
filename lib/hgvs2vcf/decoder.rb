@@ -151,6 +151,7 @@ module Hgvs2vcf
       contig, s0, e0 = g_range(parsed, mapper, parsed[:pos_start], parsed[:pos_end], warnings)
       deleted = @seq.fetch(contig, s0, e0 + 1)
       check_stated_sequence(mapper, deleted, parsed[:seq], contig, s0, warnings)
+      check_stated_length(deleted, parsed[:len], contig, s0, warnings)
       vcf_record(contig, s0, deleted, "")
     end
 
@@ -158,6 +159,7 @@ module Hgvs2vcf
       contig, s0, e0 = g_range(parsed, mapper, parsed[:pos_start], parsed[:pos_end], warnings)
       duplicated = @seq.fetch(contig, s0, e0 + 1)
       check_stated_sequence(mapper, duplicated, parsed[:seq], contig, s0, warnings)
+      check_stated_length(duplicated, parsed[:len], contig, s0, warnings)
       # A duplicated genomic segment is inserted immediately 3' of itself on the
       # genome; left-alignment then moves it to the canonical VCF position.
       vcf_record(contig, e0 + 1, "", duplicated)
@@ -181,6 +183,7 @@ module Hgvs2vcf
       contig, s0, e0 = g_range(parsed, mapper, parsed[:pos_start], parsed[:pos_end], warnings)
       inverted = @seq.fetch(contig, s0, e0 + 1)
       check_stated_sequence(mapper, inverted, parsed[:seq], contig, s0, warnings)
+      check_stated_length(inverted, parsed[:len], contig, s0, warnings)
       vcf_record(contig, s0, inverted, revcomp(inverted))
     end
 
@@ -198,6 +201,16 @@ module Hgvs2vcf
 
       warnings << "reference mismatch: HGVS states #{stated} but the transcript has " \
                   "#{expected} at #{contig}:#{s0 + 1}"
+    end
+
+    # `c.1327+15_1327+32del18` counts the affected bases instead of spelling them.
+    # The count is redundant with the position range, so a disagreement means the
+    # notation is internally inconsistent — say so, but keep the range as written.
+    def check_stated_length(genomic_seq, stated, contig, s0, warnings)
+      return if stated.nil? || stated == genomic_seq.length
+
+      warnings << "length mismatch: HGVS states #{stated} bases but the position range " \
+                  "covers #{genomic_seq.length} at #{contig}:#{s0 + 1}"
     end
 
     # --- p. edits -------------------------------------------------------------
