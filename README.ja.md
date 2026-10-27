@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-オフラインで HGVS 表記を VCF 座標（`CHROM POS REF ALT`）に変換する HTTP API サーバです。クエリ時に VEP・Mutalyzer・NCBI へはアクセスせず、事前に用意した転写産物モデル（cdot）と参照ゲノム（GRCh38）をローカルインデックスから読み出して変換します。
+オフラインで HGVS 表記を VCF 座標（`CHROM POS REF ALT`）に変換する HTTP API サーバです。クエリ時に VEP・Mutalyzer・NCBI へはアクセスせず、事前に用意した転写産物モデル（cdot）と参照ゲノム（GRCh38。GRCh37 も可、[GRCh37](#4-grch37) 参照）をローカルインデックスから読み出して変換します。
 
 ## できること
 
@@ -54,7 +54,7 @@ mkdir -p data && cd data
 ln -s cdot-0.2.33.refseq.GRCh38.json.gz   cdot.refseq.GRCh38.json.gz
 ln -s cdot-0.2.33.ensembl.GRCh38.json.gz  cdot.ensembl.GRCh38.json.gz
 
-# 2) MANE サマリー（監査・出典確認用。実行時には読みません）
+# 2) MANE サマリー（GRCh37 ではインデックス構築の入力。GRCh38 では出典確認用）
 #    最新版は https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/current/
 #    (例: MANE.GRCh38.v1.5.summary.txt.gz)
 ln -s MANE.GRCh38.v1.5.summary.txt.gz     MANE.GRCh38.summary.txt.gz
@@ -112,6 +112,39 @@ ruby bin/build_index.rb --out data/index --build GRCh38 \
 gunzip -kc data/GRCh38.fna.gz > data/GRCh38.fna && samtools faidx data/GRCh38.fna
 INDEX_DIR=data/index GENOME_FASTA=data/GRCh38.fna bundle exec ruby app.rb
 ```
+
+### 4. GRCh37
+
+`BUILD=GRCh37` を指定し、GRCh37 用のファイルを同じ命名規則で置きます。cdot の GRCh37 ファイルには MANE タグがない（MANE は GRCh38 上で定義されている）ため、インデックスは MANE Select を MANE サマリーから取ります。シンボルは、MANE 転写産物の **同じ版** が GRCh37 に整列されていればそれに解決し（MANE v1.5 と cdot 0.2.33 で 19,363 件中 19,270 件）、なければ **422** を返します。GRCh37 当時の Ensembl canonical は別の転写産物であることが多いので、そこへはフォールバックしません。
+
+```bash
+cd data
+# cdot データリリースの GRCh37 ファイル
+ln -s cdot-0.2.33.refseq.GRCh37.json.gz   cdot.refseq.GRCh37.json.gz
+ln -s cdot-0.2.33.ensembl.GRCh37.json.gz  cdot.ensembl.GRCh37.json.gz
+# NCBI GCF_000001405.25（GRCh37.p13）。contig は cdot と同じ RefSeq アクセッション:
+#   https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.25_GRCh37.p13/
+ln -s GCF_000001405.25_GRCh37.p13_genomic.fna.gz  GRCh37.fna.gz
+# 手順 1 の MANE.GRCh38.summary.txt.gz も使います（両ビルド共通の 1 ファイル）
+cd ..
+
+docker run -it --rm --user $(id -u):$(id -g) -e BUILD=GRCh37 -v $(pwd)/data:/data hgvs2vcf index
+docker run -it --rm --user $(id -u):$(id -g) -e BUILD=GRCh37 -v $(pwd)/data:/data -p 4567:4567 hgvs2vcf
+```
+
+コンテナは `index-GRCh37/` と `GRCh37.fna` を使うので、両ビルドで `data/` を共有できます。コンテナを使わない場合:
+
+```bash
+ruby bin/build_index.rb --out data/index-GRCh37 --build GRCh37 \
+     --mane data/MANE.GRCh38.summary.txt.gz \
+     data/cdot.refseq.GRCh37.json.gz data/cdot.ensembl.GRCh37.json.gz
+gunzip -kc data/GRCh37.fna.gz > data/GRCh37.fna && samtools faidx data/GRCh37.fna
+BUILD=GRCh37 INDEX_DIR=data/index-GRCh37 GENOME_FASTA=data/GRCh37.fna bundle exec ruby app.rb
+```
+
+インデックスが別の `BUILD` 用に作られている場合、サーバは起動しません。アクセッション入力（`NM_…`、`ENST…`）は GRCh38 と同様に、GRCh37 ファイルにある版に対して解決します。ensembl の GRCh37 ファイルは Ensembl 87 で止まっているため、現在の ENST の版はほとんど含まれていません。
+
+ClinVar から抽出した 469 件（Variant Recoder の正解を GRCh37 へ liftover）では、GRCh37 が等価 467 件・完全一致 322 件、GRCh38 が 468 件・322 件でした。GRCh37 で増えた 1 件（`NM_007098:c.3601-1dup`）は、そのスプライス部位の塩基が両アセンブリで異なるためで、変換の誤りではありません。
 
 ## API
 
@@ -186,10 +219,11 @@ cdot のエクソンタプル: `[g_start(0), g_end(excl), exon_number, cdna_star
 |------|--------|----------------|
 | 転写産物モデル（RefSeq + Ensembl、GRCh38） | [cdot releases](https://github.com/SACGF/cdot/releases) | インデックス構築 |
 | 参照ゲノム | [NCBI GCF_000001405.40_GRCh38.p14](https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.40_GRCh38.p14/) — `GCF_000001405.40_GRCh38.p14_genomic.fna.gz`（cdot の `contig` と同じ RefSeq アクセッション） | サーバー実行 |
-| MANE サマリー（監査・独立したシンボル対応表） | [NCBI MANE_human/current](https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/current/) | 監査のみ |
+| 参照ゲノム（GRCh37） | [NCBI GCF_000001405.25_GRCh37.p13](https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.25_GRCh37.p13/) — `GCF_000001405.25_GRCh37.p13_genomic.fna.gz` | サーバー実行（`BUILD=GRCh37`） |
+| MANE サマリー（シンボル → MANE Select） | [NCBI MANE_human/current](https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/current/) | GRCh37 のインデックス構築（`--mane`）、GRCh38 では監査 |
 | HGNC complete set（任意） | シンボルエイリアス・廃止シンボル | デフォルトでは未使用 |
 
-実行時に読むのは LMDB インデックスとゲノム FASTA のみです。cdot JSON はインデックス構築時のみ必要で、MANE ファイルは出典確認用に保持します。
+実行時に読むのは LMDB インデックスとゲノム FASTA のみです。cdot JSON はインデックス構築時のみ必要です。MANE ファイルは GRCh37 ではインデックス構築に使い、GRCh38 では出典確認用に保持します。
 
 ### 知っておくべき 3 つの判断
 
@@ -198,7 +232,7 @@ cdot のエクソンタプル: `[g_start(0), g_end(excl), exon_number, cdna_star
    - `NOS3:p.Asp298Glu`、参照コドン `GAT` → 最小 SNV が **2 つ**: `c.894T>A` と `c.894T>G`。（既知の rs1799983 は T>G ですが、HGVSp だけでは断定できません。）
    デコーダーは最小候補を **すべて** 返し `ambiguous: true` にします。2 塩基以上の変化が必要な候補は `requires_mnv` とし MNV/delins として出力します。運用方針（すべて返す・1塩基を優先・拒否）は利用側で決めてください。
 
-2. **シンボルやアクセッションのみの入力では MANE Select をデフォルトにします。** cdot タグから解決し、MANE のない遺伝子（非コーディング、一部パッチ遺伝子）は Ensembl canonical にフォールバックします。`NM_000690` のみ → 読み込み済みの最高バージョン。
+2. **シンボルやアクセッションのみの入力では MANE Select をデフォルトにします。** cdot タグから解決し（GRCh37 では MANE サマリーから。[GRCh37](#4-grch37) 参照）、MANE のない遺伝子（非コーディング、一部パッチ遺伝子）は Ensembl canonical にフォールバックします。`NM_000690` のみ → 読み込み済みの最高バージョン。
 
    **canonical タグを持つのは ensembl ファイルだけです**（cdot 0.2.33 の refseq 側は 0 件）。フォールバックはこれに依存するため、**両方のファイルを読み込む必要があります**:
 
@@ -266,9 +300,10 @@ ruby spec/decode_test.rb   # 合成リファレンスで全対応表記・両鎖
 
 | 変数 | デフォルト | 説明 |
 |------|------------|------|
-| `INDEX_DIR` | `data/index`（ローカル）/ `/data/index`（コンテナ） | LMDB インデックスのパス |
-| `GENOME_FASTA` | `data/GRCh38.fna` / `/data/GRCh38.fna` | 参照 FASTA（`.fai` 必須） |
-| `BUILD` | `GRCh38` | ゲノムビルド名 |
+| `INDEX_DIR` | `data/index`（ローカル）/ `/data/index`、他ビルドは `/data/index-$BUILD`（コンテナ） | LMDB インデックスのパス |
+| `GENOME_FASTA` | `data/GRCh38.fna` / `/data/$BUILD.fna` | 参照 FASTA（`.fai` 必須） |
+| `BUILD` | `GRCh38` | ゲノムビルド名（`GRCh38` または `GRCh37`）。インデックスと一致必須 |
+| `MANE_SUMMARY` | `/data/MANE.GRCh38.summary.txt.gz`（コンテナ） | GRCh38 以外の `index` で使う MANE サマリー |
 | `BIND` | `0.0.0.0` | バインドアドレス |
 | `PORT` | `4567` | 待ち受けポート |
 

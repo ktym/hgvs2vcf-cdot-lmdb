@@ -17,10 +17,9 @@ COPY app.rb ./app.rb
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# INDEX_DIR and GENOME_FASTA are derived from BUILD in docker-entrypoint.sh.
 ENV HOME=/tmp \
     DATA=/data \
-    INDEX_DIR=/data/index \
-    GENOME_FASTA=/data/GRCh38.fna \
     BUILD=GRCh38 \
     PORT=4567
 EXPOSE 4567
