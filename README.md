@@ -140,7 +140,7 @@ gunzip -kc data/GRCh37.fna.gz > data/GRCh37.fna && samtools faidx data/GRCh37.fn
 BUILD=GRCh37 INDEX_DIR=data/index-GRCh37 GENOME_FASTA=data/GRCh37.fna bundle exec ruby app.rb
 ```
 
-The server refuses to start when the index was built for a different `BUILD`. Accession inputs (`NM_…`, `ENST…`) resolve as on GRCh38, against the versions present in the GRCh37 files; the ensembl GRCh37 file stops at Ensembl 87, so most current ENST versions are absent there.
+The server refuses to start when the index was built for a different `BUILD`. Accession inputs (`NM_…`, `ENST…`) resolve as on GRCh38, against the versions present in the GRCh37 files; the ensembl GRCh37 file stops at Ensembl 87, so most current ENST versions are absent there. As on GRCh38, the 147 transcripts the ensembl GRCh37 file places on unplaced scaffolds under Ensembl names (`GL000…`) answer 422, since the NCBI FASTA names those scaffolds `NT_`/`NW_`.
 
 On the 469-case ClinVar sample (Variant Recoder truth lifted to GRCh37), GRCh37 scores 467 equivalent / 322 exact against 468 / 322 on GRCh38. The one extra difference, `NM_007098:c.3601-1dup`, is a base that differs between the two assemblies at that splice site, not a decoding error.
 

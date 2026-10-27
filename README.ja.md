@@ -142,7 +142,7 @@ gunzip -kc data/GRCh37.fna.gz > data/GRCh37.fna && samtools faidx data/GRCh37.fn
 BUILD=GRCh37 INDEX_DIR=data/index-GRCh37 GENOME_FASTA=data/GRCh37.fna bundle exec ruby app.rb
 ```
 
-インデックスが別の `BUILD` 用に作られている場合、サーバは起動しません。アクセッション入力（`NM_…`、`ENST…`）は GRCh38 と同様に、GRCh37 ファイルにある版に対して解決します。ensembl の GRCh37 ファイルは Ensembl 87 で止まっているため、現在の ENST の版はほとんど含まれていません。
+インデックスが別の `BUILD` 用に作られている場合、サーバは起動しません。アクセッション入力（`NM_…`、`ENST…`）は GRCh38 と同様に、GRCh37 ファイルにある版に対して解決します。ensembl の GRCh37 ファイルは Ensembl 87 で止まっているため、現在の ENST の版はほとんど含まれていません。また GRCh38 と同じく、ensembl の GRCh37 ファイルが Ensembl 式の名前（`GL000…`）のスキャフォールド上に置く 147 転写産物は 422 になります。NCBI の FASTA ではこれらのスキャフォールドが `NT_`/`NW_` の名前になっているためです。
 
 ClinVar から抽出した 469 件（Variant Recoder の正解を GRCh37 へ liftover）では、GRCh37 が等価 467 件・完全一致 322 件、GRCh38 が 468 件・322 件でした。GRCh37 で増えた 1 件（`NM_007098:c.3601-1dup`）は、そのスプライス部位の塩基が両アセンブリで異なるためで、変換の誤りではありません。
 
