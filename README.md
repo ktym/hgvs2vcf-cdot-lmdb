@@ -1,6 +1,6 @@
 # HGVS notation to VCF coordinates API server
 
-Offline HTTP API server that converts HGVS notation to VCF coordinates (`CHROM POS REF ALT`). At query time it does not call VEP, Mutalyzer, or NCBI; it reads pre-built transcript models (cdot) and the reference genome (GRCh38) from a local index.
+Offline HTTP API server that converts HGVS notation to VCF coordinates (`CHROM POS REF ALT`). At query time it does not call VEP, Mutalyzer, or NCBI; it reads pre-built transcript models (cdot) and the reference genome (GRCh38, or GRCh37 — see [GRCh37](#4-grch37)) from a local index.
 
 ## What it does
 
@@ -52,7 +52,7 @@ mkdir -p data && cd data
 ln -s cdot-0.2.33.refseq.GRCh38.json.gz   cdot.refseq.GRCh38.json.gz
 ln -s cdot-0.2.33.ensembl.GRCh38.json.gz  cdot.ensembl.GRCh38.json.gz
 
-# 2) MANE summary (auditing / provenance; not read by the running app)
+# 2) MANE summary (index input for GRCh37; for GRCh38 only kept for provenance)
 #    latest from https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/current/
 #    (e.g. MANE.GRCh38.v1.5.summary.txt.gz)
 ln -s MANE.GRCh38.v1.5.summary.txt.gz     MANE.GRCh38.summary.txt.gz
@@ -110,6 +110,39 @@ ruby bin/build_index.rb --out data/index --build GRCh38 \
 gunzip -kc data/GRCh38.fna.gz > data/GRCh38.fna && samtools faidx data/GRCh38.fna
 INDEX_DIR=data/index GENOME_FASTA=data/GRCh38.fna bundle exec ruby app.rb
 ```
+
+### 4. GRCh37
+
+Set `BUILD=GRCh37` and provide the GRCh37 files under the same naming scheme. cdot's GRCh37 files carry no MANE tags (MANE is defined on GRCh38), so the index takes MANE Select from the MANE summary instead: a symbol resolves to its MANE transcript when that **exact version** is aligned to GRCh37 (19,270 of 19,363 in MANE v1.5 with cdot 0.2.33), and to **422** otherwise — never to the GRCh37-era Ensembl canonical, which is often a different transcript.
+
+```bash
+cd data
+# cdot data release, GRCh37 files
+ln -s cdot-0.2.33.refseq.GRCh37.json.gz   cdot.refseq.GRCh37.json.gz
+ln -s cdot-0.2.33.ensembl.GRCh37.json.gz  cdot.ensembl.GRCh37.json.gz
+# NCBI GCF_000001405.25 (GRCh37.p13), RefSeq contig accessions like cdot's:
+#   https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.25_GRCh37.p13/
+ln -s GCF_000001405.25_GRCh37.p13_genomic.fna.gz  GRCh37.fna.gz
+# plus MANE.GRCh38.summary.txt.gz from step 1 — the same file serves both builds
+cd ..
+
+docker run -it --rm --user $(id -u):$(id -g) -e BUILD=GRCh37 -v $(pwd)/data:/data hgvs2vcf index
+docker run -it --rm --user $(id -u):$(id -g) -e BUILD=GRCh37 -v $(pwd)/data:/data -p 4567:4567 hgvs2vcf
+```
+
+The container then uses `index-GRCh37/` and `GRCh37.fna`, so both builds can share `data/`. Without a container:
+
+```bash
+ruby bin/build_index.rb --out data/index-GRCh37 --build GRCh37 \
+     --mane data/MANE.GRCh38.summary.txt.gz \
+     data/cdot.refseq.GRCh37.json.gz data/cdot.ensembl.GRCh37.json.gz
+gunzip -kc data/GRCh37.fna.gz > data/GRCh37.fna && samtools faidx data/GRCh37.fna
+BUILD=GRCh37 INDEX_DIR=data/index-GRCh37 GENOME_FASTA=data/GRCh37.fna bundle exec ruby app.rb
+```
+
+The server refuses to start when the index was built for a different `BUILD`. Accession inputs (`NM_…`, `ENST…`) resolve as on GRCh38, against the versions present in the GRCh37 files; the ensembl GRCh37 file stops at Ensembl 87, so most current ENST versions are absent there. As on GRCh38, the 147 transcripts the ensembl GRCh37 file places on unplaced scaffolds under Ensembl names (`GL000…`) answer 422, since the NCBI FASTA names those scaffolds `NT_`/`NW_`.
+
+On the 469-case ClinVar sample (Variant Recoder truth lifted to GRCh37), GRCh37 scores 467 equivalent / 322 exact against 468 / 322 on GRCh38. The one extra difference, `NM_007098:c.3601-1dup`, is a base that differs between the two assemblies at that splice site, not a decoding error.
 
 ## API
 
@@ -184,10 +217,11 @@ All sources are refreshed periodically and **never queried live** at decode time
 |------|--------|---------|
 | Transcript models (RefSeq + Ensembl, GRCh38) | [cdot releases](https://github.com/SACGF/cdot/releases) | index build |
 | Reference genome | [NCBI GCF_000001405.40_GRCh38.p14](https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.40_GRCh38.p14/) — `GCF_000001405.40_GRCh38.p14_genomic.fna.gz` (RefSeq contig accessions match cdot `contig`) | serve |
-| MANE summary (audit / independent symbol map) | [NCBI MANE_human/current](https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/current/) | auditing only |
+| Reference genome, GRCh37 | [NCBI GCF_000001405.25_GRCh37.p13](https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.25_GRCh37.p13/) — `GCF_000001405.25_GRCh37.p13_genomic.fna.gz` | serve (`BUILD=GRCh37`) |
+| MANE summary (symbol → MANE Select) | [NCBI MANE_human/current](https://ftp.ncbi.nlm.nih.gov/refseq/MANE/MANE_human/current/) | index build for GRCh37 (`--mane`); auditing for GRCh38 |
 | HGNC complete set (optional) | symbol aliases / withdrawn symbols | not used by default |
 
-The running app reads only the LMDB index and the genome FASTA. cdot JSON is needed at index-build time; the MANE file is kept for provenance.
+The running app reads only the LMDB index and the genome FASTA. cdot JSON is needed at index-build time, and so is the MANE summary for GRCh37; for GRCh38 it is kept for provenance.
 
 ### Three decisions to be aware of
 
@@ -196,7 +230,7 @@ The running app reads only the LMDB index and the genome FASTA. cdot JSON is nee
    - `NOS3:p.Asp298Glu`, ref codon `GAT` → **two** minimal SNVs: `c.894T>A` and `c.894T>G`. (The known rs1799983 is T>G, but HGVSp alone can't say.)
    The decoder returns **all** minimal candidates and sets `ambiguous: true`; candidates needing ≥2 nt changes are flagged `requires_mnv` and emitted as an MNV/delins. Decide your policy: return all, prefer single-nt, or refuse.
 
-2. **MANE Select as the default for a bare symbol / bare accession.** Resolved from cdot tags; falls back to Ensembl-canonical when a gene has no MANE (non-coding, some patch genes). Bare `NM_000690` → highest loaded version.
+2. **MANE Select as the default for a bare symbol / bare accession.** Resolved from cdot tags (on GRCh37, from the MANE summary — see [GRCh37](#4-grch37)); falls back to Ensembl-canonical when a gene has no MANE (non-coding, some patch genes). Bare `NM_000690` → highest loaded version.
 
    **Only the ensembl file carries canonical tags** (0 in cdot 0.2.33's refseq file), and the fallback depends on them, so **load both files**:
 
@@ -264,9 +298,10 @@ A sudden jump in mismatch rate usually means a transcript version or MANE reassi
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `INDEX_DIR` | `data/index` (local) / `/data/index` (container) | LMDB index path |
-| `GENOME_FASTA` | `data/GRCh38.fna` / `/data/GRCh38.fna` | Reference FASTA (requires `.fai`) |
-| `BUILD` | `GRCh38` | Genome build name |
+| `INDEX_DIR` | `data/index` (local) / `/data/index`, `/data/index-$BUILD` for other builds (container) | LMDB index path |
+| `GENOME_FASTA` | `data/GRCh38.fna` / `/data/$BUILD.fna` | Reference FASTA (requires `.fai`) |
+| `BUILD` | `GRCh38` | Genome build name (`GRCh38` or `GRCh37`); must match the index |
+| `MANE_SUMMARY` | `/data/MANE.GRCh38.summary.txt.gz` (container) | MANE summary used by `index` for builds other than GRCh38 |
 | `BIND` | `0.0.0.0` | Bind address |
 | `PORT` | `4567` | Listen port |
 
