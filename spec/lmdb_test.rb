@@ -84,5 +84,46 @@ check("no ref warning", r[:warnings], [])
 r2 = dec.decode("TST:c.1G>A") # symbol -> MANE Select -> NM_999999.1
 check("decode via symbol(MANE)", [r2[:transcript], r2[:vcf].first[:pos]], ["NM_999999.1", 1001])
 
+# ---- 3) MANE from the NCBI summary (GRCh37 has no MANE tags in cdot) ---------
+def tx37(gene, tag)
+  { "gene_name" => gene, "start_codon" => 0, "stop_codon" => 30, "biotype" => ["protein_coding"],
+    "genome_builds" => { "GRCh37" => {
+      "contig" => "NC_test", "strand" => "+", "tag" => tag, "exons" => [[1000, 1100, 0, 1, 100, nil]]
+    } } }
+end
+cdot37 = {
+  "transcripts" => {
+    "NM_100000.2" => tx37("OLDNAME", nil),                       # MANE, under an older symbol
+    "ENST00000100000.1" => tx37("OLDNAME", "basic,Ensembl_canonical"),
+    "NM_200000.1" => tx37("GONE", nil),                          # older version than MANE's .3
+    "ENST00000200000.1" => tx37("GONE", "basic,Ensembl_canonical"),
+    "ENST00000300000.1" => tx37("NOMANE", "basic,Ensembl_canonical")
+  }
+}
+jf37 = Tempfile.new(["c37", ".json"]); jf37.write(JSON.dump(cdot37)); jf37.close
+summary = Tempfile.new(["mane", ".txt"])
+summary.write("#NCBI_GeneID\tsymbol\tRefSeq_nuc\tEnsembl_nuc\tMANE_status\n" \
+              "1\tNEWNAME\tNM_100000.2\tENST00000999999.4\tMANE Select\n" \
+              "2\tGONE\tNM_200000.3\tENST00000888888.2\tMANE Select\n" \
+              "3\tNEWNAME\tNM_100001.1\tENST00000777777.1\tMANE Plus Clinical\n")
+summary.close
+kv3 = {}; tx3 = {}
+b3 = IndexBuilder.new(kv: kv3, txdb: tx3, build: "GRCh37")
+b3.add_cdot(jf37.path).add_mane(summary.path).finalize!
+check("mane stats (Plus Clinical ignored)", b3.mane_stats, [1, 1])
+idx3 = LmdbIndex.new(kv: kv3, txdb: tx3, build: "GRCh37")
+sym = ->(s) { idx3.resolve_transcript_id(reference_type: :gene_symbol, reference: s, reference_base: s, reference_version: nil) }
+check("summary symbol -> exact MANE version", sym.("NEWNAME"), "NM_100000.2")
+gone = begin; sym.("GONE"); rescue Transcripts::ResolveError => e; e.message; end
+check("MANE version absent -> 422, no canonical fallback", gone.include?("NM_200000.3"), true)
+check("gene without MANE still uses canonical", sym.("NOMANE"), "ENST00000300000.1")
+
+mismatch = begin
+  LmdbIndex.new(kv: kv3, txdb: tx3, build: "GRCh38"); nil
+rescue ArgumentError => e
+  e.message
+end
+check("index/BUILD mismatch refused", mismatch, "index was built for GRCh37 but BUILD is GRCh38")
+
 puts($fails.zero? ? "\nALL PASS" : "\n#{$fails} FAILED")
 exit($fails.zero? ? 0 : 1)

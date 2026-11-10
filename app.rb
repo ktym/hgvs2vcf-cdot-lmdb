@@ -39,6 +39,10 @@ module App
   end
 end
 
+# Open the index at boot, so an index built for another BUILD stops the server
+# instead of failing on the first request. /health alone needs no data.
+App.decoder if ENV.key?("INDEX_DIR")
+
 configure do
   # Bind to all interfaces — inside a container the default 'localhost' is not
   # reachable through `-p host:container`, which shows up as a connection reset.

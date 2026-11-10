@@ -14,12 +14,18 @@ module Hgvs2vcf
       @tx = txdb
       @build = build
       @contigs = nil
+      # Serving one build's index against another build's FASTA raises no error
+      # per query — it returns wrong coordinates — so refuse it up front.
+      indexed = @kv["meta:build"]
+      if indexed && indexed != build
+        raise ArgumentError, "index was built for #{indexed} but BUILD is #{build}"
+      end
     end
 
     def resolve_transcript_id(reference_type:, reference:, reference_base:, reference_version:)
       case reference_type
       when :gene_symbol
-        @kv["mane:#{reference}"] || @kv["canon:#{reference}"] ||
+        @kv["mane:#{reference}"] || refuse_missing_mane(reference) || @kv["canon:#{reference}"] ||
           raise(Transcripts::ResolveError, "no MANE Select / canonical transcript for #{reference.inspect}")
       when :refseq_transcript, :ensembl_transcript
         if reference_version
@@ -49,6 +55,16 @@ module Hgvs2vcf
     end
 
     private
+
+    # A MANE gene whose MANE transcript is not in this build must not fall back
+    # to the canonical tag: on GRCh37 that is Ensembl 82-87's choice, often a
+    # different transcript, and the answer would be wrong without any warning.
+    def refuse_missing_mane(symbol)
+      tx_id = @kv["mane-missing:#{symbol}"] or return nil
+      raise Transcripts::ResolveError,
+            "MANE Select for #{symbol.inspect} is #{tx_id}, which is not in the #{@build} index; " \
+            "give a transcript accession instead"
+    end
 
     def contigs
       @contigs ||= begin
